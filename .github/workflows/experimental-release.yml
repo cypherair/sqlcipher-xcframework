@@ -1,0 +1,203 @@
+name: Experimental Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag_prefix:
+        description: Use sqlcipher-xcframework-experiment on main, or sqlcipher-xcframework-drill-* for branch-specific drills.
+        required: true
+        default: sqlcipher-xcframework-experiment
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build-and-publish:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Resolve release settings
+        env:
+          INPUT_RELEASE_TAG_PREFIX: ${{ github.event.inputs.release_tag_prefix || 'sqlcipher-xcframework-experiment' }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_TAG_PREFIX="${INPUT_RELEASE_TAG_PREFIX:-sqlcipher-xcframework-experiment}"
+          case "$RELEASE_TAG_PREFIX" in
+            *[!A-Za-z0-9._-]*)
+              echo "::error::release_tag_prefix may only contain letters, numbers, dots, underscores, and hyphens."
+              exit 1
+              ;;
+          esac
+
+          case "$RELEASE_TAG_PREFIX" in
+            sqlcipher-xcframework-experiment)
+              if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+                echo "::error::Canonical experiment releases are only allowed from refs/heads/main. Use sqlcipher-xcframework-drill-* for branch-specific drills."
+                exit 1
+              fi
+              RELEASE_CHANNEL="experiment"
+              RELEASE_METADATA="sqlcipher-xcframework-experiment.json"
+              ;;
+            sqlcipher-xcframework-drill-?*)
+              RELEASE_CHANNEL="drill"
+              RELEASE_METADATA="sqlcipher-xcframework-drill.json"
+              ;;
+            *)
+              echo "::error::release_tag_prefix must be sqlcipher-xcframework-experiment or sqlcipher-xcframework-drill-*."
+              exit 1
+              ;;
+          esac
+
+          RELEASE_TIMESTAMP="$(date -u +"%Y%m%dT%H%M%SZ")"
+          SHORT_SHA="$(printf '%.7s' "$GITHUB_SHA")"
+          RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT:-1}"
+          RELEASE_TAG="${RELEASE_TAG_PREFIX}-${RELEASE_TIMESTAMP}-${SHORT_SHA}-r${GITHUB_RUN_ID}-a${RUN_ATTEMPT}"
+          RELEASE_TITLE="SQLCipher XCFramework ${RELEASE_CHANNEL} ($RELEASE_TAG)"
+          WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          if ! git check-ref-format "refs/tags/$RELEASE_TAG"; then
+            echo "::error::Generated release tag is not a valid Git ref: $RELEASE_TAG"
+            exit 1
+          fi
+
+          {
+            echo "RELEASE_CHANNEL=$RELEASE_CHANNEL"
+            echo "RELEASE_METADATA=$RELEASE_METADATA"
+            echo "RELEASE_TAG=$RELEASE_TAG"
+            echo "RELEASE_TITLE=$RELEASE_TITLE"
+            echo "RUN_ATTEMPT=$RUN_ATTEMPT"
+            echo "WORKFLOW_URL=$WORKFLOW_URL"
+          } >> "$GITHUB_ENV"
+      - name: Build SQLCipher XCFramework
+        run: ./scripts/build-sqlcipher-xcframework.sh
+      - name: Write release metadata
+        run: |
+          set -euo pipefail
+
+          BUILT_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          XCODE_VERSION="$(xcodebuild -version | tr '\n' ' ' | sed 's/  */ /g; s/ $//')"
+          export BUILT_AT XCODE_VERSION
+
+          python3 - "$RELEASE_METADATA" <<'PY'
+          import json
+          import os
+          import sys
+
+          payload = {
+              "release_channel": os.environ["RELEASE_CHANNEL"],
+              "release_tag": os.environ["RELEASE_TAG"],
+              "source_ref": os.environ["GITHUB_REF"],
+              "commit_sha": os.environ["GITHUB_SHA"],
+              "built_at": os.environ["BUILT_AT"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["RUN_ATTEMPT"],
+              "workflow_url": os.environ["WORKFLOW_URL"],
+              "xcode_version": os.environ["XCODE_VERSION"],
+              "sqlcipher_source_repository": "https://github.com/sqlcipher/sqlcipher.git",
+              "sqlcipher_source_tag": "v4.16.0",
+              "sqlcipher_source_commit": "e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc",
+              "assets": [
+                  "SQLCipher.xcframework.zip",
+                  "SQLCipher.xcframework.sha256",
+                  "SQLCipher.arm64e-build-manifest.json",
+                  "SQLCipher-PrivacyInfo.xcprivacy",
+                  os.environ["RELEASE_METADATA"],
+              ],
+          }
+
+          with open(sys.argv[1], "w", encoding="utf-8") as handle:
+              json.dump(payload, handle, indent=2, sort_keys=True)
+              handle.write("\n")
+          PY
+
+          cat > release-notes.md <<EOF
+          Experimental SQLCipher XCFramework build for CypherAir arm64e evaluation.
+
+          - Release tag: \`$RELEASE_TAG\`
+          - Release channel: \`$RELEASE_CHANNEL\`
+          - Source ref: \`$GITHUB_REF\`
+          - Commit: \`$GITHUB_SHA\`
+          - Built at (UTC): \`$BUILT_AT\`
+          - Xcode: \`$XCODE_VERSION\`
+          - SQLCipher upstream tag: \`v4.16.0\`
+          - SQLCipher upstream commit: \`e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc\`
+          - Workflow: [$WORKFLOW_URL]($WORKFLOW_URL)
+
+          Assets:
+
+          - \`SQLCipher.xcframework.zip\`
+          - \`SQLCipher.xcframework.sha256\`
+          - \`SQLCipher.arm64e-build-manifest.json\`
+          - \`SQLCipher-PrivacyInfo.xcprivacy\`
+          - \`$RELEASE_METADATA\`
+
+          Verification:
+
+          \`\`\`bash
+          shasum -a 256 -c SQLCipher.xcframework.sha256
+          gh release verify "$RELEASE_TAG" -R "$GITHUB_REPOSITORY"
+          gh release verify-asset "$RELEASE_TAG" SQLCipher.xcframework.zip -R "$GITHUB_REPOSITORY"
+          gh attestation verify SQLCipher.xcframework.zip -R "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/experimental-release.yml" --source-ref "$GITHUB_REF"
+          \`\`\`
+          EOF
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sqlcipher-xcframework-release-assets-${{ env.RELEASE_TAG }}
+          path: |
+            build/SQLCipher.xcframework.zip
+            build/SQLCipher.xcframework.sha256
+            build/SQLCipher.arm64e-build-manifest.json
+            build/SQLCipher-PrivacyInfo.xcprivacy
+            ${{ env.RELEASE_METADATA }}
+            release-notes.md
+          if-no-files-found: error
+          retention-days: 30
+      - name: Attest release assets
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: |
+            build/SQLCipher.xcframework.zip
+            build/SQLCipher.xcframework.sha256
+            build/SQLCipher.arm64e-build-manifest.json
+            build/SQLCipher-PrivacyInfo.xcprivacy
+            ${{ env.RELEASE_METADATA }}
+      - name: Create release tag
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::error::Release tag already exists: $RELEASE_TAG"
+            exit 1
+          fi
+
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/$RELEASE_TAG" \
+            -f "sha=$GITHUB_SHA"
+      - name: Publish prerelease
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TITLE" \
+            --notes-file release-notes.md \
+            --prerelease \
+            --latest=false \
+            build/SQLCipher.xcframework.zip \
+            build/SQLCipher.xcframework.sha256 \
+            build/SQLCipher.arm64e-build-manifest.json \
+            build/SQLCipher-PrivacyInfo.xcprivacy \
+            "$RELEASE_METADATA"

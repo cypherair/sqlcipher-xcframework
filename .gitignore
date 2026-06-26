@@ -1,0 +1,16 @@
+# Build outputs
+build/
+*.xcframework/
+*.xcframework.zip
+*.sha256
+*.arm64e-build-manifest.json
+sqlcipher-xcframework-*.json
+
+# macOS / Xcode
+.DS_Store
+DerivedData/
+
+# Python
+__pycache__/
+*.pyc
+
