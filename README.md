@@ -5,8 +5,8 @@ for Apple targets that need `arm64e` device slices.
 
 It is not a fork of SQLCipher core. The build script consumes the upstream
 `sqlcipher/sqlcipher` `v4.16.0` tag, verifies the peeled commit, generates the
-SQLCipher amalgamation, and packages a static-library XCFramework for CypherAir
-integration experiments.
+SQLCipher amalgamation, and packages a static framework-shaped XCFramework for
+CypherAir integration experiments.
 
 ## Current Status
 
@@ -14,13 +14,14 @@ integration experiments.
 - Upstream source: `https://github.com/sqlcipher/sqlcipher`
 - Upstream tag: `v4.16.0`
 - Expected peeled commit: `e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc`
-- Package shape: static `libSQLCipher.a` XCFramework.
+- Package shape: static `SQLCipher.framework` slices inside
+  `SQLCipher.xcframework`.
 - Crypto provider: Apple CommonCrypto / Security framework
   (`SQLCIPHER_CRYPTO_CC`).
 
-This repository does not make SQLCipher a formal CypherAir app dependency by
-itself. The main CypherAir repository must explicitly opt in later and add its
-own consumer-side validation before linking this artifact.
+This repository does not make SQLCipher a formal CypherAir Contacts storage
+dependency by itself. The main CypherAir repository must explicitly opt in and
+add consumer-side validation before relying on this artifact.
 
 ## Supported Slices
 
@@ -62,6 +63,20 @@ The script writes these ignored outputs under `build/`:
 - `SQLCipher.arm64e-build-manifest.json`
 - `SQLCipher-PrivacyInfo.xcprivacy`
 
+Each XCFramework slice contains:
+
+```text
+SQLCipher.framework/
+├── Headers/
+├── Modules/module.modulemap
+├── PrivacyInfo.xcprivacy
+└── SQLCipher
+```
+
+`SQLCipher.framework/SQLCipher` is a static-library binary. This shape lets
+Xcode consume the artifact through the normal Frameworks phase while keeping
+CypherAir's static-linking intent.
+
 Run validation again against an existing build:
 
 ```bash
@@ -94,4 +109,3 @@ BSD 3-Clause license in `LICENSE`.
 SQLCipher remains under its upstream BSD-style license, and SQLite remains
 public domain. Generated artifacts must preserve upstream SQLCipher, SQLite,
 and privacy-manifest notices when consumed by CypherAir.
-

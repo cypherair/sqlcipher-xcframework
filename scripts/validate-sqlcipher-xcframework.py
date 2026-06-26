@@ -42,7 +42,8 @@ EXPECTED_LIBRARIES = {
     },
 }
 
-REQUIRED_HEADERS = ["SQLCipher.h", "sqlite3.h", "sqlite3ext.h", "sqlite3session.h", "module.modulemap"]
+REQUIRED_HEADERS = ["SQLCipher.h", "sqlite3.h", "sqlite3ext.h", "sqlite3session.h"]
+REQUIRED_FRAMEWORK_FILES = ["Info.plist", "Modules/module.modulemap", "PrivacyInfo.xcprivacy"]
 COMPILE_OPTIONS = ["SQLITE_HAS_CODEC", "SQLITE_TEMP_STORE=2"]
 LINK_FRAMEWORKS = ["Security", "CoreFoundation", "Foundation"]
 CFLAGS = [
@@ -125,23 +126,40 @@ def validate_xcframework(xcframework: Path) -> list[dict]:
             raise ValidationError(f"{identifier}: variant {variant!r} != {expected['variant']!r}")
         if architectures != expected["architectures"]:
             raise ValidationError(f"{identifier}: architectures {architectures!r} != {expected['architectures']!r}")
-        if library_path != "libSQLCipher.a" or binary_path != "libSQLCipher.a":
-            raise ValidationError(f"{identifier}: expected static libSQLCipher.a, got {library_path!r}/{binary_path!r}")
-        if headers_path != "Headers":
-            raise ValidationError(f"{identifier}: expected Headers path, got {headers_path!r}")
+        if library_path != "SQLCipher.framework" or binary_path != "SQLCipher.framework/SQLCipher":
+            raise ValidationError(f"{identifier}: expected SQLCipher.framework, got {library_path!r}/{binary_path!r}")
+        if headers_path is not None:
+            raise ValidationError(f"{identifier}: framework-shaped slices must not expose HeadersPath, got {headers_path!r}")
 
-        library = xcframework / identifier / "libSQLCipher.a"
+        framework = xcframework / identifier / "SQLCipher.framework"
+        library = framework / "SQLCipher"
         if not library.is_file():
-            raise ValidationError(f"{identifier}: static library is missing: {library}")
+            raise ValidationError(f"{identifier}: framework binary is missing: {library}")
 
         lipo_archs = run(["lipo", "-archs", str(library)]).split()
         if lipo_archs != expected["architectures"]:
             raise ValidationError(f"{identifier}: lipo archs {lipo_archs!r} != {expected['architectures']!r}")
 
-        headers = xcframework / identifier / "Headers"
+        for required in REQUIRED_FRAMEWORK_FILES:
+            if not (framework / required).is_file():
+                raise ValidationError(f"{identifier}: required framework file is missing: {required}")
+
+        framework_info = load_plist(framework / "Info.plist")
+        if framework_info.get("CFBundlePackageType") != "FMWK":
+            raise ValidationError(f"{identifier}: SQLCipher.framework Info.plist must declare CFBundlePackageType=FMWK")
+        if framework_info.get("CFBundleExecutable") != "SQLCipher":
+            raise ValidationError(f"{identifier}: SQLCipher.framework Info.plist must declare CFBundleExecutable=SQLCipher")
+
+        headers = framework / "Headers"
         for header in REQUIRED_HEADERS:
             if not (headers / header).is_file():
                 raise ValidationError(f"{identifier}: required header is missing: {header}")
+        modulemap = (framework / "Modules/module.modulemap").read_text(encoding="utf-8")
+        if "framework module SQLCipher" not in modulemap or 'umbrella header "SQLCipher.h"' not in modulemap:
+            raise ValidationError(f"{identifier}: module.modulemap does not declare framework module SQLCipher")
+        sqlcipher_header = (headers / "SQLCipher.h").read_text(encoding="utf-8")
+        if "#define SQLITE_HAS_CODEC" not in sqlcipher_header:
+            raise ValidationError(f"{identifier}: SQLCipher.h must expose SQLITE_HAS_CODEC before sqlite3.h")
 
         normalized.append(
             {
@@ -150,6 +168,7 @@ def validate_xcframework(xcframework: Path) -> list[dict]:
                 "variant": variant,
                 "architectures": architectures,
                 "libraryPath": library_path,
+                "binaryPath": binary_path,
                 "sha256": sha256(library),
             }
         )
@@ -191,11 +210,10 @@ def smoke_test(xcframework: Path) -> dict:
         return {"status": "skipped", "reason": f"host architecture {host!r} cannot run arm64 smoke binary"}
 
     identifier = "macos-arm64_arm64e"
-    headers = xcframework / identifier / "Headers"
-    library = xcframework / identifier / "libSQLCipher.a"
+    framework_parent = xcframework / identifier
 
     source = r'''
-#include "SQLCipher.h"
+#include <SQLCipher/SQLCipher.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -282,10 +300,11 @@ int main(int argc, char **argv) {
             "-arch",
             "arm64",
             str(source_path),
-            str(library),
-            "-I",
-            str(headers),
             "-DSQLITE_HAS_CODEC",
+            "-F",
+            str(framework_parent),
+            "-framework",
+            "SQLCipher",
             "-framework",
             "Security",
             "-framework",
@@ -299,6 +318,8 @@ int main(int argc, char **argv) {
         linkage = run(["otool", "-L", str(binary_path)])
         if "libsqlite3" in linkage:
             raise ValidationError("smoke binary links system libsqlite3")
+        if "SQLCipher.framework" in linkage:
+            raise ValidationError("smoke binary linked SQLCipher as a dynamic framework; expected static framework linkage")
         run([str(binary_path), str(database_path)])
 
     return {"status": "passed", "hostArchitecture": host}
@@ -347,7 +368,7 @@ def write_manifest(
         "status": "experimental",
         "generatedAt": generated_at,
         "artifactName": "SQLCipher.xcframework",
-        "packageShape": "static-library-xcframework",
+        "packageShape": "static-framework-xcframework",
         "source": {
             "repository": args.source_repository,
             "tag": args.source_tag,
@@ -437,4 +458,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -106,14 +106,18 @@ prepare_headers() {
     cp "$SOURCE_DIR/sqlite3ext.h" "$INCLUDE_DIR/sqlite3ext.h"
     cp "$SOURCE_DIR/sqlite3session.h" "$INCLUDE_DIR/sqlite3session.h"
 
-    cat > "$INCLUDE_DIR/SQLCipher.h" <<'HEADER'
+cat > "$INCLUDE_DIR/SQLCipher.h" <<'HEADER'
 #pragma once
+
+#ifndef SQLITE_HAS_CODEC
+#define SQLITE_HAS_CODEC 1
+#endif
 
 #include "sqlite3.h"
 HEADER
 
     cat > "$INCLUDE_DIR/module.modulemap" <<'MODULEMAP'
-module SQLCipher [system] {
+framework module SQLCipher [system] {
   umbrella header "SQLCipher.h"
   export *
 }
@@ -157,6 +161,47 @@ build_library() {
     fi
 }
 
+create_framework_bundle() {
+    local identifier="$1"
+    local framework_dir="$WORK_DIR/$identifier/SQLCipher.framework"
+
+    rm -rf "$framework_dir"
+    mkdir -p "$framework_dir/Headers" "$framework_dir/Modules"
+
+    cp "$WORK_DIR/$identifier/libSQLCipher.a" "$framework_dir/SQLCipher"
+    cp "$INCLUDE_DIR/SQLCipher.h" "$framework_dir/Headers/SQLCipher.h"
+    cp "$INCLUDE_DIR/sqlite3.h" "$framework_dir/Headers/sqlite3.h"
+    cp "$INCLUDE_DIR/sqlite3ext.h" "$framework_dir/Headers/sqlite3ext.h"
+    cp "$INCLUDE_DIR/sqlite3session.h" "$framework_dir/Headers/sqlite3session.h"
+    cp "$INCLUDE_DIR/module.modulemap" "$framework_dir/Modules/module.modulemap"
+    cp "$SOURCE_DIR/sqlcipher-resources/PrivacyInfo.xcprivacy" "$framework_dir/PrivacyInfo.xcprivacy"
+
+    cat > "$framework_dir/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>SQLCipher</string>
+    <key>CFBundleIdentifier</key>
+    <string>org.sqlcipher.SQLCipher</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>SQLCipher</string>
+    <key>CFBundlePackageType</key>
+    <string>FMWK</string>
+    <key>CFBundleShortVersionString</key>
+    <string>4.16.0</string>
+    <key>CFBundleVersion</key>
+    <string>4.16.0</string>
+</dict>
+</plist>
+PLIST
+}
+
 create_xcframework() {
     log_step xcframework "Creating $XCFRAMEWORK_NAME..."
 
@@ -169,12 +214,18 @@ create_xcframework() {
     build_library iphonesimulator ios-arm64-simulator "arm64"
     build_library xrsimulator xros-arm64-simulator "arm64"
 
+    create_framework_bundle ios-arm64_arm64e
+    create_framework_bundle macos-arm64_arm64e
+    create_framework_bundle xros-arm64_arm64e
+    create_framework_bundle ios-arm64-simulator
+    create_framework_bundle xros-arm64-simulator
+
     xcodebuild -create-xcframework \
-        -library "$WORK_DIR/ios-arm64_arm64e/libSQLCipher.a" -headers "$INCLUDE_DIR" \
-        -library "$WORK_DIR/macos-arm64_arm64e/libSQLCipher.a" -headers "$INCLUDE_DIR" \
-        -library "$WORK_DIR/xros-arm64_arm64e/libSQLCipher.a" -headers "$INCLUDE_DIR" \
-        -library "$WORK_DIR/ios-arm64-simulator/libSQLCipher.a" -headers "$INCLUDE_DIR" \
-        -library "$WORK_DIR/xros-arm64-simulator/libSQLCipher.a" -headers "$INCLUDE_DIR" \
+        -framework "$WORK_DIR/ios-arm64_arm64e/SQLCipher.framework" \
+        -framework "$WORK_DIR/macos-arm64_arm64e/SQLCipher.framework" \
+        -framework "$WORK_DIR/xros-arm64_arm64e/SQLCipher.framework" \
+        -framework "$WORK_DIR/ios-arm64-simulator/SQLCipher.framework" \
+        -framework "$WORK_DIR/xros-arm64-simulator/SQLCipher.framework" \
         -output "$XCFRAMEWORK_PATH"
 
     cp "$SOURCE_DIR/sqlcipher-resources/PrivacyInfo.xcprivacy" "$PRIVACY_MANIFEST"
@@ -227,4 +278,3 @@ main() {
 }
 
 main "$@"
-
