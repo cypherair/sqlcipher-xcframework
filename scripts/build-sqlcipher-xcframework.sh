@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build CypherAir's experimental SQLCipher XCFramework with Apple arm64e slices.
+# Build CypherAir's SQLCipher XCFramework with Apple arm64e slices.
 
 set -euo pipefail
 
@@ -11,6 +11,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SQLCIPHER_REPOSITORY="${SQLCIPHER_REPOSITORY:-https://github.com/sqlcipher/sqlcipher.git}"
 SQLCIPHER_TAG="${SQLCIPHER_TAG:-v4.16.0}"
 SQLCIPHER_EXPECTED_COMMIT="${SQLCIPHER_EXPECTED_COMMIT:-e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc}"
+SQLCIPHER_RELEASE_STATUS="${SQLCIPHER_RELEASE_STATUS:-experimental}"
 
 BUILD_DIR="${SQLCIPHER_BUILD_DIR:-$REPO_ROOT/build}"
 WORK_DIR="$BUILD_DIR/work"
@@ -55,6 +56,13 @@ validate_source_identity() {
         echo "error: SQLCIPHER_EXPECTED_COMMIT must not be empty" >&2
         exit 1
     fi
+    case "$SQLCIPHER_RELEASE_STATUS" in
+        experimental|stable) ;;
+        *)
+            echo "error: SQLCIPHER_RELEASE_STATUS must be experimental or stable" >&2
+            exit 1
+            ;;
+    esac
 }
 
 fetch_source() {
@@ -246,6 +254,7 @@ validate_outputs() {
 
     python3 "$REPO_ROOT/scripts/validate-sqlcipher-xcframework.py" \
         --xcframework "$XCFRAMEWORK_PATH" \
+        --status "$SQLCIPHER_RELEASE_STATUS" \
         --manifest-out "$MANIFEST_PATH" \
         --source-dir "$SOURCE_DIR" \
         --source-repository "$SQLCIPHER_REPOSITORY" \

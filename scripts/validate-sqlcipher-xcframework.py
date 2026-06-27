@@ -66,6 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--xcframework", type=Path, required=True)
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--manifest-out", type=Path)
+    parser.add_argument("--status", choices=["experimental", "stable"], default="experimental")
     parser.add_argument("--source-dir", type=Path)
     parser.add_argument("--source-repository", default="https://github.com/sqlcipher/sqlcipher.git")
     parser.add_argument("--source-tag", default="v4.16.0")
@@ -365,7 +366,7 @@ def write_manifest(
     }
     manifest = {
         "schemaVersion": 1,
-        "status": "experimental",
+        "status": args.status,
         "generatedAt": generated_at,
         "artifactName": "SQLCipher.xcframework",
         "packageShape": "static-framework-xcframework",
@@ -407,14 +408,14 @@ def write_manifest(
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def validate_manifest(path: Path) -> None:
+def validate_manifest(path: Path, expected_status: str) -> None:
     if not path.is_file():
         raise ValidationError(f"manifest is missing: {path}")
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schemaVersion") != 1:
         raise ValidationError("manifest schemaVersion must be 1")
-    if payload.get("status") != "experimental":
-        raise ValidationError("manifest status must be experimental")
+    if payload.get("status") != expected_status:
+        raise ValidationError(f"manifest status must be {expected_status}")
     source = payload.get("source") or {}
     if source.get("tag") != "v4.16.0":
         raise ValidationError("manifest source tag must be v4.16.0")
@@ -444,9 +445,9 @@ def main() -> int:
                 privacy=privacy,
                 smoke=smoke,
             )
-            validate_manifest(args.manifest_out)
+            validate_manifest(args.manifest_out, args.status)
         if args.manifest:
-            validate_manifest(args.manifest)
+            validate_manifest(args.manifest, args.status)
 
     except (ValidationError, subprocess.CalledProcessError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)

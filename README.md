@@ -1,16 +1,17 @@
 # SQLCipher XCFramework for CypherAir
 
-This repository builds a CypherAir-owned experimental `SQLCipher.xcframework`
-for Apple targets that need `arm64e` device slices.
+This repository builds the CypherAir-owned `SQLCipher.xcframework` for Apple
+targets that need `arm64e` device slices.
 
 It is not a fork of SQLCipher core. The build script consumes the upstream
 `sqlcipher/sqlcipher` `v4.16.0` tag, verifies the peeled commit, generates the
 SQLCipher amalgamation, and packages a static framework-shaped XCFramework for
-CypherAir integration experiments.
+CypherAir app integration.
 
 ## Current Status
 
-- Status: experimental prerelease infrastructure.
+- Status: stable external binary dependency infrastructure for CypherAir, with
+  separate experiment and drill channels for validation.
 - Upstream source: `https://github.com/sqlcipher/sqlcipher`
 - Upstream tag: `v4.16.0`
 - Expected peeled commit: `e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc`
@@ -19,14 +20,13 @@ CypherAir integration experiments.
 - Crypto provider: Apple CommonCrypto / Security framework
   (`SQLCIPHER_CRYPTO_CC`).
 
-This repository does not make SQLCipher a formal CypherAir Contacts storage
-dependency by itself. The main CypherAir repository must explicitly opt in and
-add consumer-side validation before relying on this artifact.
+This repository provides the SQLCipher binary artifact consumed by the main
+CypherAir repository. It does not by itself implement Contacts SQLCipher
+storage; that application behavior remains owned by `cypherair/cypherair`.
 
 ## Supported Slices
 
-The first experimental artifact intentionally builds only the slices needed by
-CypherAir:
+The artifact intentionally builds only the slices needed by CypherAir:
 
 | Library identifier | Platform | Architectures |
 | --- | --- | --- |
@@ -90,16 +90,26 @@ python3 scripts/validate-sqlcipher-xcframework.py \
 
 ## Release Discipline
 
-Experimental releases publish:
+Stable releases use SSH-signed annotated tags such as
+`sqlcipher-xcframework-v4.16.0-cypherair.1`. The stable release workflow only
+publishes from those tags, produces non-prerelease immutable releases, and
+verifies both GitHub release integrity and artifact attestations after
+publication.
+
+Stable releases publish:
 
 - `SQLCipher.xcframework.zip`
 - `SQLCipher.xcframework.sha256`
 - `SQLCipher.arm64e-build-manifest.json`
 - `SQLCipher-PrivacyInfo.xcprivacy`
-- `sqlcipher-xcframework-experiment.json`
+- `SQLCipher.xcframework.release.json`
 
-Release assets must be immutable. If an artifact is wrong, publish a new
-experiment release instead of replacing existing assets.
+Experiment and drill releases remain available for validation work and publish
+channel-specific metadata such as `sqlcipher-xcframework-experiment.json`.
+
+Release assets must be immutable. If a stable artifact is wrong, publish a new
+semantic release tag such as `sqlcipher-xcframework-v4.16.0-cypherair.2`
+instead of replacing existing assets.
 
 ## Licensing
 

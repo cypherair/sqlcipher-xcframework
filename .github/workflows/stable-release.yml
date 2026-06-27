@@ -1,0 +1,267 @@
+name: Stable Release
+
+on:
+  push:
+    tags:
+      - "sqlcipher-xcframework-v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build-and-publish:
+    runs-on: macos-26
+    env:
+      RELEASE_METADATA: SQLCipher.xcframework.release.json
+      RELEASE_ASSETS: >-
+        SQLCipher.xcframework.zip
+        SQLCipher.xcframework.sha256
+        SQLCipher.arm64e-build-manifest.json
+        SQLCipher-PrivacyInfo.xcprivacy
+        SQLCipher.xcframework.release.json
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Validate signed stable tag
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_REF_TYPE:-}" != "tag" ]; then
+            echo "::error::Stable SQLCipher release workflow must run from a tag."
+            exit 1
+          fi
+          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^sqlcipher-xcframework-v4\.16\.0-cypherair\.[0-9]+$'; then
+            echo "::error::Unexpected stable SQLCipher release tag: $RELEASE_TAG"
+            exit 1
+          fi
+
+          checked_out_commit="$(git rev-parse HEAD)"
+          read -r tag_object_type tag_object_sha < <(
+            gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
+              --jq '.object | [.type, .sha] | @tsv'
+          )
+          if [ "$tag_object_type" != "tag" ]; then
+            echo "::error::Stable SQLCipher tag $RELEASE_TAG must be an annotated signed tag, got $tag_object_type"
+            exit 1
+          fi
+
+          tag_object_json="$(mktemp)"
+          gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_object_sha}" > "$tag_object_json"
+          python3 - "$tag_object_json" "$RELEASE_TAG" "$checked_out_commit" <<'PY'
+          import json
+          import sys
+
+          path, release_tag, checked_out_commit = sys.argv[1:4]
+          with open(path, encoding="utf-8") as handle:
+              tag_object = json.load(handle)
+
+          errors = []
+          if tag_object.get("tag") != release_tag:
+              errors.append(f"tag object name {tag_object.get('tag')!r} does not match {release_tag!r}")
+
+          target = tag_object.get("object") or {}
+          if target.get("type") != "commit":
+              errors.append(f"stable tag peels to {target.get('type')!r}, not commit")
+          target_sha = target.get("sha") or ""
+          if target_sha != checked_out_commit:
+              errors.append(f"stable tag target {target_sha!r} does not match checked out commit {checked_out_commit!r}")
+
+          verification = tag_object.get("verification") or {}
+          signature = verification.get("signature") or ""
+          if verification.get("verified") is not True:
+              errors.append(f"stable tag signature is not verified: {verification.get('reason')}")
+          if verification.get("reason") != "valid":
+              errors.append(f"stable tag signature verification reason is {verification.get('reason')!r}")
+          if not signature.startswith("-----BEGIN SSH SIGNATURE-----"):
+              errors.append("stable tag must be SSH-signed")
+
+          if errors:
+              for error in errors:
+                  print(f"::error::{error}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Stable SQLCipher tag {release_tag} is an SSH-signed annotated tag for {target_sha}")
+          PY
+          rm -f "$tag_object_json"
+
+          {
+            echo "RELEASE_TAG=$RELEASE_TAG"
+            echo "RELEASE_COMMIT=$checked_out_commit"
+            echo "RELEASE_TITLE=SQLCipher XCFramework $RELEASE_TAG"
+            echo "WORKFLOW_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } >> "$GITHUB_ENV"
+
+      - name: Build SQLCipher XCFramework
+        run: SQLCIPHER_RELEASE_STATUS=stable ./scripts/build-sqlcipher-xcframework.sh
+
+      - name: Write release metadata
+        run: |
+          set -euo pipefail
+
+          BUILT_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          XCODE_VERSION="$(xcodebuild -version | tr '\n' ' ' | sed 's/  */ /g; s/ $//')"
+          export BUILT_AT XCODE_VERSION
+
+          python3 - "build/$RELEASE_METADATA" <<'PY'
+          import json
+          import os
+          import sys
+
+          payload = {
+              "release_channel": "stable",
+              "release_tag": os.environ["RELEASE_TAG"],
+              "release_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/releases/tag/{os.environ['RELEASE_TAG']}",
+              "source_ref": f"refs/tags/{os.environ['RELEASE_TAG']}",
+              "commit_sha": os.environ["RELEASE_COMMIT"],
+              "built_at": os.environ["BUILT_AT"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "workflow_url": os.environ["WORKFLOW_URL"],
+              "signer_workflow": f"{os.environ['GITHUB_REPOSITORY']}/.github/workflows/stable-release.yml",
+              "xcode_version": os.environ["XCODE_VERSION"],
+              "sqlcipher_source_repository": "https://github.com/sqlcipher/sqlcipher.git",
+              "sqlcipher_source_tag": "v4.16.0",
+              "sqlcipher_source_commit": "e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc",
+              "assets": [
+                  "SQLCipher.xcframework.zip",
+                  "SQLCipher.xcframework.sha256",
+                  "SQLCipher.arm64e-build-manifest.json",
+                  "SQLCipher-PrivacyInfo.xcprivacy",
+                  "SQLCipher.xcframework.release.json",
+              ],
+          }
+
+          with open(sys.argv[1], "w", encoding="utf-8") as handle:
+              json.dump(payload, handle, indent=2, sort_keys=True)
+              handle.write("\n")
+          PY
+
+          cat > release-notes.md <<EOF
+          Stable SQLCipher XCFramework build for CypherAir.
+
+          - Release tag: \`$RELEASE_TAG\`
+          - Release channel: \`stable\`
+          - Source ref: \`refs/tags/$RELEASE_TAG\`
+          - Commit: \`$RELEASE_COMMIT\`
+          - Built at (UTC): \`$BUILT_AT\`
+          - Xcode: \`$XCODE_VERSION\`
+          - SQLCipher upstream tag: \`v4.16.0\`
+          - SQLCipher upstream commit: \`e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc\`
+          - Workflow: [$WORKFLOW_URL]($WORKFLOW_URL)
+
+          Assets:
+
+          - \`SQLCipher.xcframework.zip\`
+          - \`SQLCipher.xcframework.sha256\`
+          - \`SQLCipher.arm64e-build-manifest.json\`
+          - \`SQLCipher-PrivacyInfo.xcprivacy\`
+          - \`SQLCipher.xcframework.release.json\`
+
+          Verification:
+
+          \`\`\`bash
+          shasum -a 256 -c SQLCipher.xcframework.sha256
+          gh release verify "$RELEASE_TAG" -R "$GITHUB_REPOSITORY"
+          gh release verify-asset "$RELEASE_TAG" SQLCipher.xcframework.zip -R "$GITHUB_REPOSITORY"
+          gh attestation verify SQLCipher.xcframework.zip -R "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/stable-release.yml" --source-ref "refs/tags/$RELEASE_TAG" --source-digest "$RELEASE_COMMIT"
+          \`\`\`
+          EOF
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: sqlcipher-xcframework-stable-assets-${{ env.RELEASE_TAG }}
+          path: |
+            build/SQLCipher.xcframework.zip
+            build/SQLCipher.xcframework.sha256
+            build/SQLCipher.arm64e-build-manifest.json
+            build/SQLCipher-PrivacyInfo.xcprivacy
+            build/SQLCipher.xcframework.release.json
+            release-notes.md
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attest release assets
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: |
+            build/SQLCipher.xcframework.zip
+            build/SQLCipher.xcframework.sha256
+            build/SQLCipher.arm64e-build-manifest.json
+            build/SQLCipher-PrivacyInfo.xcprivacy
+            build/SQLCipher.xcframework.release.json
+
+      - name: Create draft stable release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release already exists: $RELEASE_TAG"
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --verify-tag \
+            --target "$RELEASE_COMMIT" \
+            --title "$RELEASE_TITLE" \
+            --notes-file release-notes.md \
+            --latest=false \
+            build/SQLCipher.xcframework.zip \
+            build/SQLCipher.xcframework.sha256 \
+            build/SQLCipher.arm64e-build-manifest.json \
+            build/SQLCipher-PrivacyInfo.xcprivacy \
+            build/SQLCipher.xcframework.release.json
+
+      - name: Publish and verify immutable stable release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest=false
+
+          immutable=""
+          for _ in $(seq 1 18); do
+            immutable="$(gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --json isImmutable --jq '.isImmutable')"
+            if [ "$immutable" = "true" ] && gh release verify "$RELEASE_TAG" -R "$GITHUB_REPOSITORY"; then
+              break
+            fi
+            sleep 10
+          done
+          if [ "$immutable" != "true" ]; then
+            echo "::error::Published release did not become immutable: $RELEASE_TAG"
+            exit 1
+          fi
+          gh release verify "$RELEASE_TAG" -R "$GITHUB_REPOSITORY"
+
+          cd build
+          for asset in $RELEASE_ASSETS; do
+            gh release verify-asset "$RELEASE_TAG" "$asset" -R "$GITHUB_REPOSITORY"
+            gh attestation verify "$asset" \
+              -R "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/stable-release.yml" \
+              --source-ref "refs/tags/$RELEASE_TAG" \
+              --source-digest "$RELEASE_COMMIT" \
+              --deny-self-hosted-runners >/dev/null
+          done
+
+      - name: Cleanup failed draft release
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_is_draft="$(gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+          if [ "$release_is_draft" = "true" ]; then
+            gh release delete "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --yes
+          fi
