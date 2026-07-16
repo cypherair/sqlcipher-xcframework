@@ -9,8 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SQLCIPHER_REPOSITORY="${SQLCIPHER_REPOSITORY:-https://github.com/sqlcipher/sqlcipher.git}"
-SQLCIPHER_TAG="${SQLCIPHER_TAG:-v4.16.0}"
-SQLCIPHER_EXPECTED_COMMIT="${SQLCIPHER_EXPECTED_COMMIT:-e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc}"
+SQLCIPHER_TAG="${SQLCIPHER_TAG:-v4.17.0}"
+SQLCIPHER_EXPECTED_COMMIT="${SQLCIPHER_EXPECTED_COMMIT:-810db22f575ee7cf94ea96a3e91622b5fcece3dc}"
+SQLCIPHER_VERSION="${SQLCIPHER_TAG#v}"
 SQLCIPHER_RELEASE_STATUS="${SQLCIPHER_RELEASE_STATUS:-experimental}"
 
 BUILD_DIR="${SQLCIPHER_BUILD_DIR:-$REPO_ROOT/build}"
@@ -184,7 +185,7 @@ create_framework_bundle() {
     cp "$INCLUDE_DIR/module.modulemap" "$framework_dir/Modules/module.modulemap"
     cp "$SOURCE_DIR/sqlcipher-resources/PrivacyInfo.xcprivacy" "$framework_dir/PrivacyInfo.xcprivacy"
 
-    cat > "$framework_dir/Info.plist" <<'PLIST'
+    cat > "$framework_dir/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -202,9 +203,9 @@ create_framework_bundle() {
     <key>CFBundlePackageType</key>
     <string>FMWK</string>
     <key>CFBundleShortVersionString</key>
-    <string>4.16.0</string>
+    <string>$SQLCIPHER_VERSION</string>
     <key>CFBundleVersion</key>
-    <string>4.16.0</string>
+    <string>$SQLCIPHER_VERSION</string>
 </dict>
 </plist>
 PLIST

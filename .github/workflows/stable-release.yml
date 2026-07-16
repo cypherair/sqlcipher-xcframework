@@ -38,7 +38,7 @@ jobs:
             echo "::error::Stable SQLCipher release workflow must run from a tag."
             exit 1
           fi
-          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^sqlcipher-xcframework-v4\.16\.0-cypherair\.[0-9]+$'; then
+          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^sqlcipher-xcframework-v4\.17\.0-cypherair\.[0-9]+$'; then
             echo "::error::Unexpected stable SQLCipher release tag: $RELEASE_TAG"
             exit 1
           fi
@@ -128,8 +128,8 @@ jobs:
               "signer_workflow": f"{os.environ['GITHUB_REPOSITORY']}/.github/workflows/stable-release.yml",
               "xcode_version": os.environ["XCODE_VERSION"],
               "sqlcipher_source_repository": "https://github.com/sqlcipher/sqlcipher.git",
-              "sqlcipher_source_tag": "v4.16.0",
-              "sqlcipher_source_commit": "e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc",
+              "sqlcipher_source_tag": "v4.17.0",
+              "sqlcipher_source_commit": "810db22f575ee7cf94ea96a3e91622b5fcece3dc",
               "assets": [
                   "SQLCipher.xcframework.zip",
                   "SQLCipher.xcframework.sha256",
@@ -153,8 +153,8 @@ jobs:
           - Commit: \`$RELEASE_COMMIT\`
           - Built at (UTC): \`$BUILT_AT\`
           - Xcode: \`$XCODE_VERSION\`
-          - SQLCipher upstream tag: \`v4.16.0\`
-          - SQLCipher upstream commit: \`e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc\`
+          - SQLCipher upstream tag: \`v4.17.0\`
+          - SQLCipher upstream commit: \`810db22f575ee7cf94ea96a3e91622b5fcece3dc\`
           - Workflow: [$WORKFLOW_URL]($WORKFLOW_URL)
 
           Assets:

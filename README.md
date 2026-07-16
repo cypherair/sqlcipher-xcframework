@@ -4,7 +4,7 @@ This repository builds the CypherAir-owned `SQLCipher.xcframework` for Apple
 targets that need `arm64e` device slices.
 
 It is not a fork of SQLCipher core. The build script consumes the upstream
-`sqlcipher/sqlcipher` `v4.16.0` tag, verifies the peeled commit, generates the
+`sqlcipher/sqlcipher` `v4.17.0` tag, verifies the peeled commit, generates the
 SQLCipher amalgamation, and packages a static framework-shaped XCFramework for
 CypherAir app integration.
 
@@ -13,8 +13,9 @@ CypherAir app integration.
 - Status: stable external binary dependency infrastructure for CypherAir, with
   separate experiment and drill channels for validation.
 - Upstream source: `https://github.com/sqlcipher/sqlcipher`
-- Upstream tag: `v4.16.0`
-- Expected peeled commit: `e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc`
+- Upstream tag: `v4.17.0`
+- Expected peeled commit: `810db22f575ee7cf94ea96a3e91622b5fcece3dc`
+- SQLite baseline: `3.53.3`
 - Package shape: static `SQLCipher.framework` slices inside
   `SQLCipher.xcframework`.
 - Crypto provider: Apple CommonCrypto / Security framework
@@ -77,6 +78,10 @@ SQLCipher.framework/
 Xcode consume the artifact through the normal Frameworks phase while keeping
 CypherAir's static-linking intent.
 
+Validation also executes a macOS encrypted-database round trip, verifies the
+SQLCipher 4.17.0 and SQLite 3.53.3 runtime identities, and requires a wrong key
+to fail with `SQLITE_NOTADB`.
+
 Run validation again against an existing build:
 
 ```bash
@@ -91,7 +96,7 @@ python3 scripts/validate-sqlcipher-xcframework.py \
 ## Release Discipline
 
 Stable releases use SSH-signed annotated tags such as
-`sqlcipher-xcframework-v4.16.0-cypherair.1`. The stable release workflow only
+`sqlcipher-xcframework-v4.17.0-cypherair.1`. The stable release workflow only
 publishes from those tags, produces non-prerelease immutable releases, and
 verifies both GitHub release integrity and artifact attestations after
 publication.
@@ -108,7 +113,7 @@ Experiment and drill releases remain available for validation work and publish
 channel-specific metadata such as `sqlcipher-xcframework-experiment.json`.
 
 Release assets must be immutable. If a stable artifact is wrong, publish a new
-semantic release tag such as `sqlcipher-xcframework-v4.16.0-cypherair.2`
+semantic release tag such as `sqlcipher-xcframework-v4.17.0-cypherair.2`
 instead of replacing existing assets.
 
 ## Licensing

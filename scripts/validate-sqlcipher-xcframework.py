@@ -46,6 +46,11 @@ REQUIRED_HEADERS = ["SQLCipher.h", "sqlite3.h", "sqlite3ext.h", "sqlite3session.
 REQUIRED_FRAMEWORK_FILES = ["Info.plist", "Modules/module.modulemap", "PrivacyInfo.xcprivacy"]
 COMPILE_OPTIONS = ["SQLITE_HAS_CODEC", "SQLITE_TEMP_STORE=2"]
 LINK_FRAMEWORKS = ["Security", "CoreFoundation", "Foundation"]
+EXPECTED_SOURCE_REPOSITORY = "https://github.com/sqlcipher/sqlcipher.git"
+EXPECTED_SOURCE_TAG = "v4.17.0"
+EXPECTED_SOURCE_COMMIT = "810db22f575ee7cf94ea96a3e91622b5fcece3dc"
+EXPECTED_SQLCIPHER_VERSION = "4.17.0"
+EXPECTED_SQLITE_VERSION = "3.53.3"
 CFLAGS = [
     "-DNDEBUG",
     "-DSQLCIPHER_CRYPTO_CC",
@@ -68,9 +73,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest-out", type=Path)
     parser.add_argument("--status", choices=["experimental", "stable"], default="experimental")
     parser.add_argument("--source-dir", type=Path)
-    parser.add_argument("--source-repository", default="https://github.com/sqlcipher/sqlcipher.git")
-    parser.add_argument("--source-tag", default="v4.16.0")
-    parser.add_argument("--source-commit", default="e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc")
+    parser.add_argument("--source-repository", default=EXPECTED_SOURCE_REPOSITORY)
+    parser.add_argument("--source-tag", default=EXPECTED_SOURCE_TAG)
+    parser.add_argument("--source-commit", default=EXPECTED_SOURCE_COMMIT)
     parser.add_argument("--xcframework-zip", type=Path)
     parser.add_argument("--checksum-file", type=Path)
     parser.add_argument("--privacy-manifest", type=Path)
@@ -150,6 +155,11 @@ def validate_xcframework(xcframework: Path) -> list[dict]:
             raise ValidationError(f"{identifier}: SQLCipher.framework Info.plist must declare CFBundlePackageType=FMWK")
         if framework_info.get("CFBundleExecutable") != "SQLCipher":
             raise ValidationError(f"{identifier}: SQLCipher.framework Info.plist must declare CFBundleExecutable=SQLCipher")
+        for version_key in ("CFBundleShortVersionString", "CFBundleVersion"):
+            if framework_info.get(version_key) != EXPECTED_SQLCIPHER_VERSION:
+                raise ValidationError(
+                    f"{identifier}: {version_key} must be {EXPECTED_SQLCIPHER_VERSION}"
+                )
 
         headers = framework / "Headers"
         for header in REQUIRED_HEADERS:
@@ -258,11 +268,12 @@ int main(int argc, char **argv) {
 
   if (sqlite3_open(":memory:", &db) != SQLITE_OK) return 10;
   if (query_value(db, "PRAGMA cipher_version;", value, sizeof(value)) != SQLITE_OK) return 11;
-  if (strncmp(value, "4.16.0", 6) != 0 || strstr(value, "community") == NULL) return 12;
+  if (strncmp(value, "__SQLCIPHER_VERSION__", sizeof("__SQLCIPHER_VERSION__") - 1) != 0 || strstr(value, "community") == NULL) return 12;
   sqlite3_close(db);
 
   if (!sqlite3_compileoption_used("SQLITE_HAS_CODEC")) return 13;
   if (!sqlite3_compileoption_used("SQLITE_TEMP_STORE=2")) return 14;
+  if (strcmp(sqlite3_libversion(), "__SQLITE_VERSION__") != 0) return 15;
 
   remove(path);
   if (sqlite3_open(path, &db) != SQLITE_OK) return 20;
@@ -279,14 +290,17 @@ int main(int argc, char **argv) {
 
   if (sqlite3_open(path, &db) != SQLITE_OK) return 40;
   if (exec_sql(db, bad_key) != SQLITE_OK) return 41;
-  int wrong_key_rc = query_value(db, "SELECT v FROM t;", value, sizeof(value));
+  int wrong_key_rc = exec_sql(db, "CREATE TABLE should_not_exist(v TEXT);");
   sqlite3_close(db);
   remove(path);
-  if (wrong_key_rc == SQLITE_OK) return 42;
+  if (wrong_key_rc != SQLITE_NOTADB) return 42;
 
   return 0;
 }
 '''
+    source = source.replace("__SQLCIPHER_VERSION__", EXPECTED_SQLCIPHER_VERSION).replace(
+        "__SQLITE_VERSION__", EXPECTED_SQLITE_VERSION
+    )
 
     with tempfile.TemporaryDirectory() as temp_name:
         temp_dir = Path(temp_name)
@@ -417,10 +431,16 @@ def validate_manifest(path: Path, expected_status: str) -> None:
     if payload.get("status") != expected_status:
         raise ValidationError(f"manifest status must be {expected_status}")
     source = payload.get("source") or {}
-    if source.get("tag") != "v4.16.0":
-        raise ValidationError("manifest source tag must be v4.16.0")
-    if source.get("resolvedCommit") != "e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc":
+    if source.get("repository") != EXPECTED_SOURCE_REPOSITORY:
+        raise ValidationError("manifest source repository is not the pinned SQLCipher repository")
+    if source.get("tag") != EXPECTED_SOURCE_TAG:
+        raise ValidationError(f"manifest source tag must be {EXPECTED_SOURCE_TAG}")
+    if source.get("resolvedCommit") != EXPECTED_SOURCE_COMMIT:
         raise ValidationError("manifest source commit is not the pinned SQLCipher commit")
+    if source.get("versionFile") != EXPECTED_SQLITE_VERSION:
+        raise ValidationError(
+            f"manifest SQLite version must be {EXPECTED_SQLITE_VERSION}"
+        )
 
 
 def main() -> int:
