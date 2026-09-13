@@ -14,6 +14,7 @@ jobs:
   build-and-publish:
     runs-on: macos-26
     env:
+      RELEASE_TAG: ${{ github.ref_name }}
       RELEASE_METADATA: SQLCipher.xcframework.release.json
       RELEASE_ASSETS: >-
         SQLCipher.xcframework.zip
@@ -38,8 +39,14 @@ jobs:
             echo "::error::Stable SQLCipher release workflow must run from a tag."
             exit 1
           fi
-          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^sqlcipher-xcframework-v4\.17\.0-cypherair\.[0-9]+$'; then
-            echo "::error::Unexpected stable SQLCipher release tag: $RELEASE_TAG"
+          expected_upstream_tag="$(sed -n 's/^SQLCIPHER_TAG="\${SQLCIPHER_TAG:-\(v[0-9][0-9.]*\)}"$/\1/p' scripts/build-sqlcipher-xcframework.sh)"
+          if [ -z "$expected_upstream_tag" ]; then
+            echo "::error::Could not read the pinned SQLCIPHER_TAG from scripts/build-sqlcipher-xcframework.sh"
+            exit 1
+          fi
+          expected_pattern="^sqlcipher-xcframework-${expected_upstream_tag//./\\.}-cypherair\.[0-9]+$"
+          if ! printf '%s' "$RELEASE_TAG" | grep -Eq "$expected_pattern"; then
+            echo "::error::Unexpected stable SQLCipher release tag: $RELEASE_TAG (expected sqlcipher-xcframework-${expected_upstream_tag}-cypherair.<n>)"
             exit 1
           fi
 
