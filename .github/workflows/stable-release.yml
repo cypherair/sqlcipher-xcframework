@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build-and-publish:
-    runs-on: macos-26
+    runs-on: xcode-27
     env:
       RELEASE_TAG: ${{ github.ref_name }}
       RELEASE_METADATA: SQLCipher.xcframework.release.json
