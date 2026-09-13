@@ -128,8 +128,8 @@ jobs:
               "signer_workflow": f"{os.environ['GITHUB_REPOSITORY']}/.github/workflows/stable-release.yml",
               "xcode_version": os.environ["XCODE_VERSION"],
               "sqlcipher_source_repository": "https://github.com/sqlcipher/sqlcipher.git",
-              "sqlcipher_source_tag": "v4.17.0",
-              "sqlcipher_source_commit": "810db22f575ee7cf94ea96a3e91622b5fcece3dc",
+              "sqlcipher_source_tag": "v4.19.0",
+              "sqlcipher_source_commit": "c4b275a47932888216bade83aff2bbc73df0ff85",
               "assets": [
                   "SQLCipher.xcframework.zip",
                   "SQLCipher.xcframework.sha256",
@@ -153,8 +153,8 @@ jobs:
           - Commit: \`$RELEASE_COMMIT\`
           - Built at (UTC): \`$BUILT_AT\`
           - Xcode: \`$XCODE_VERSION\`
-          - SQLCipher upstream tag: \`v4.17.0\`
-          - SQLCipher upstream commit: \`810db22f575ee7cf94ea96a3e91622b5fcece3dc\`
+          - SQLCipher upstream tag: \`v4.19.0\`
+          - SQLCipher upstream commit: \`c4b275a47932888216bade83aff2bbc73df0ff85\`
           - Workflow: [$WORKFLOW_URL]($WORKFLOW_URL)
 
           Assets:
